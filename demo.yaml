@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "FasterCFT Demo Stack"
+
+Resources:
+    NoDoubtJamVPC:
+      Type: 'AWS::EC2::VPC'
+      Properties:
+        CidrBlock: 10.10.10.0/24
+        EnableDnsSupport: 'true'
+        EnableDnsHostnames: 'true'
+        Tags:
+         - Key: stack
+           Value: NoDoubtJam
+      Metadata:
+        cfn_nag:
+          rules_to_suppress:
+          - id: W60
+            reason: VPC FlowLogs not required for this JAM challenge
+    NoDoubtSubnet1:
+      Type: 'AWS::EC2::Subnet'
+      Properties: 
+          AvailabilityZone: 
+              Fn::Select: 
+                - 0
+                - Fn::GetAZs: ""
+          CidrBlock: 10.10.10.0/25
+          MapPublicIpOnLaunch: 'false'
+          VpcId: !Ref NoDoubtJamVPC
+    NoDoubtSubnet2:
+      Type: 'AWS::EC2::Subnet'
+      Properties: 
+        AvailabilityZone:  
+              Fn::Select: 
+                - 1
+                - Fn::GetAZs: ""
+        CidrBlock: 10.10.10.128/25
+        MapPublicIpOnLaunch: 'false'
+        VpcId: !Ref NoDoubtJamVPC
+    InstanceSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+          GroupDescription: Allow http to client host
+          VpcId:
+             Ref: NoDoubtJamVPC
+          SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+          SecurityGroupEgress:
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+      Metadata:
+        cfn_nag:
+          rules_to_suppress:
+          - id: W5
+            reason: Required to allow access to  ELB as JAM participant IP not known
+          - id: W9
+            reason: Required to allow access to  ELB as JAM participant IP not known
+          - id: W2
+            reason: Required to allow access to  ELB as JAM participant IP not known
+          - id: W36
+            reason: Name not required as only one rule is set
+    NoDoubtGateway:
+      Type: 'AWS::EC2::InternetGateway'
+    NoDoubtGatewayAttachment:
+      Type: 'AWS::EC2::VPCGatewayAttachment'
+      Properties: 
+        InternetGatewayId: !Ref NoDoubtGateway
+        VpcId: !Ref NoDoubtJamVPC
+    NoDoubtRouteTable:        
+      Type: AWS::EC2::RouteTable
+      Properties: 
+        VpcId: !Ref NoDoubtJamVPC
+    NoDoubtRoute:
+      Type: AWS::EC2::Route
+      Properties: 
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId:  !Ref NoDoubtGateway
+        RouteTableId: !Ref NoDoubtRouteTable
+    NoDoubtAssociateSubnetAWithRouteTable:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties: 
+        RouteTableId: !Ref NoDoubtRouteTable
+        SubnetId: !Ref NoDoubtSubnet1
+    NoDoubtAssociateSubnetBWithRouteTable:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties: 
+        RouteTableId: !Ref NoDoubtRouteTable
+        SubnetId: !Ref NoDoubtSubnet2
+    ALBNoDoubt:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties: 
+          IpAddressType: ipv4
+          Name: no-doubt
+          Scheme: internet-facing
+          SecurityGroups: 
+            - !Ref InstanceSecurityGroup
+          Subnets: 
+            - !Ref NoDoubtSubnet1
+            - !Ref NoDoubtSubnet2
+          Type: application 
+        DependsOn: NoDoubtGateway
+        Metadata:
+          cfn_nag:
+            rules_to_suppress:
+              - id: W52
+                reason: Logging is not required for JAM scenario
+              - id: W56
+                reason: To simplify the learning experience, only creating HTTP Protocol instead of HTTPS
+              - id: W28
+                reason: No updates required
+    DefaultListener:
+      Type: "AWS::ElasticLoadBalancingV2::Listener"
+      Properties:
+        DefaultActions:
+          - Type: "fixed-response"
+            FixedResponseConfig:
+              ContentType: "text/html"
+              MessageBody: "This is my Test"
+              StatusCode: "200"
+        LoadBalancerArn: !Ref ALBNoDoubt
+        Port: 80
+        Protocol: "HTTP"
+      Metadata:
+        cfn_nag:
+          rules_to_suppress:
+            - id: W56
+              reason: To simplify the learning experience, only creating HTTP Protocol instead of HTTPS
+Outputs:
+  ELBDNSName:
+    Description: Elastic Load Balancer DNS Name
+    Value: !GetAtt  ALBNoDoubt.DNSName
+  ELBFullName:
+    Description: Elastic Load Balancer Full Name
+    Value: !GetAtt ALBNoDoubt.LoadBalancerFullName
+  ELBName:
+    Description: Elastic Load Balancer Name
+    Value: !GetAtt ALBNoDoubt.LoadBalancerName
